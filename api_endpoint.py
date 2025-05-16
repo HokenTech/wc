@@ -42,8 +42,8 @@ def main():
         st.error("GROQ_API_KEY non configurata.")
         return
 
-    # Utilizza st.query_params per accedere ai parametri della query string
-    params = st.query_params()
+    # Nota: st.query_params è ora una proprietà e non va chiamata come funzione.
+    params = st.query_params
     if "api" in params:
         # Recupera il parametro 'text'
         input_text = params.get("text", [""])[0]
