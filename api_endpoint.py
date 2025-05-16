@@ -1,8 +1,8 @@
+
 import streamlit as st
 import json
 import requests
 import os
-import re
 
 # Costanti per chiamare l'API Groq
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -15,7 +15,6 @@ def transform_text_narrative(api_key: str, text: str) -> str:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
-    # Il prompt include istruzioni per ottenere titoli per ciascun pannello
     prompt = (
         "Riscrivi il seguente testo in uno stile fumettistico narrativo "
         "con titoli espliciti per ogni paragrafo. Non inserire la sequenza '\\n\\n' "
@@ -43,8 +42,8 @@ def main():
         st.error("GROQ_API_KEY non configurata.")
         return
 
-    # Controlla se la richiesta è intesa per l'endpoint API, ad es. ?api=1&text=...
-    params = st.experimental_get_query_params()
+    # Utilizza st.query_params per accedere ai parametri della query string
+    params = st.query_params()
     if "api" in params:
         # Recupera il parametro 'text'
         input_text = params.get("text", [""])[0]
@@ -62,3 +61,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
