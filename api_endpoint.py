@@ -1,96 +1,102 @@
 import streamlit as st
-import os
-import json
 from groq import Groq
-
-# Configura la pagina Streamlit (opzionale, ma buono per dare un titolo)
-st.set_page_config(page_title="Servizio Rielaborazione Testo Fumetto", layout="centered")
-
-# Recupera la chiave API di Groq dai segreti di Streamlit
-# Assicurati di aver configurato un segreto chiamato 'GROQ_API_KEY' in Streamlit Cloud
+import os
+import urllib.parse
+# --- Configurazione Pagina Streamlit ---
+st.set_page_config(
+    page_title="Rielaboratore Testo Fumetto AI",
+    page_icon="🗯️",
+    layout="wide"
+)
+st.title("🗯️ Rielaboratore Testo Stile Fumetto AI 📝")
+st.caption("Powered by Groq LLM")
+# --- Accesso API Key ---
+groq_api_key = None
 try:
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-except Exception as e:
-    st.error(f"Errore nell'inizializzazione del client Groq: Assicurati che GROQ_API_KEY sia configurata nei segreti di Streamlit. Dettagli: {e}")
+    # Prima prova dai segreti di Streamlit (per il deploy)
+    groq_api_key = st.secrets.get("GROQ_API_KEY")
+except Exception: # st.secrets non esiste localmente fuori da un contesto di app in esecuzione su Cloud
+    pass
+if not groq_api_key:
+    # Poi prova dalle variabili d'ambiente (per esecuzione locale con .env)
+    groq_api_key = os.environ.get("GROQ_API_KEY")
+if not groq_api_key:
+    st.error("Chiave API Groq (GROQ_API_KEY) non trovata! Assicurati di averla configurata nei segreti di Streamlit Cloud o nelle variabili d'ambiente locali.")
     st.stop()
-
-def rielabora_testo_con_groq(testo_originale):
+client = Groq(api_key=groq_api_key)
+# --- Funzione per chiamare Groq ---
+def rielabora_testo_con_groq(testo_originale, modello_llm="llama3-8b-8192"):
     if not testo_originale or not testo_originale.strip():
-        return ""
+        return "Nessun testo fornito per la rielaborazione."
     try:
         chat_completion = client.chat.completions.create(
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "Sei un assistente creativo specializzato nella scrittura di fumetti. "
-                        "Il tuo compito è rielaborare il testo fornito per renderlo più vivace, conciso e adatto "
-                        "allo stile di un dialogo o una narrazione da fumetto. "
-                        "Usa un linguaggio colorito, diretto, e se appropriato, onomatopee o esclamazioni tipiche dei fumetti. "
-                        "Mantieni il significato originale del testo."
-                        "NON includere prefissi come 'Testo rielaborato:' o simili nella tua risposta. Fornisci solo il testo trasformato."
-                        "Rispondi in italiano."
+                        "Sei un assistente AI che riscrive testi per adattarli allo stile di un fumetto o di una graphic novel. "
+                        "Il tuo obiettivo è rendere il testo più vivace, dinamico e coinvolgente, come se fosse narrato in una vignetta. "
+                        "Usa esclamazioni, onomatopee (come 'BOOM!', 'WHAM!', 'GASP!'), pensieri diretti ('Hmm, interessante...'), e brevi dialoghi immaginari se il contesto lo permette. "
+                        "Spezza frasi lunghe. Enfatizza parole chiave. Non devi inventare storie nuove, ma trasformare lo stile del testo dato. "
+                        "NON iniziare la tua risposta con frasi come 'Ecco il testo rielaborato:' o simili. Rispondi direttamente con il testo trasformato. "
+                        "Mantieni il significato principale del testo originale. Sii creativo e divertente!"
                     )
                 },
                 {
                     "role": "user",
-                    "content": f"Rielabora il seguente testo per un fumetto: \"{testo_originale}\"",
+                    "content": f"Per favore, rielabora il seguente testo in uno stile da fumetto:\n\n---\n{testo_originale}\n---"
                 }
             ],
-            model="llama3-70b-8192", # Puoi scegliere un altro modello Groq se preferisci
+            model=modello_llm,
             temperature=0.7,
-            max_tokens=len(testo_originale.split()) * 3 + 50, # Stima approssimativa per output più lungo
-            top_p=0.9,
+            max_tokens=1500, # Aumentato per testi potenzialmente più lunghi
+            top_p=1,
+            stop=None,
+            stream=False
         )
-        return chat_completion.choices[0].message.content.strip()
+        return chat_completion.choices[0].message.content
     except Exception as e:
         st.error(f"Errore durante la chiamata all'API Groq: {e}")
-        return testo_originale # Restituisce l'originale in caso di errore
-
-# Questo è il "cuore" del nostro finto endpoint API
-# Legge il testo dai parametri query dell'URL
-query_params = st.query_params.to_dict()
-testo_da_rielaborare = query_params.get("text_to_rephrase", [None])[0]
-
-risultato_rielaborato = ""
-
-if testo_da_rielaborare:
-    #st.write(f"Testo originale ricevuto: {testo_da_rielaborare}") # Debug
-    with st.spinner("🤖 Un attimo, il nostro sceneggiatore AI è all'opera..."):
-        risultato_rielaborato = rielabora_testo_con_groq(testo_da_rielaborare)
-    
-    # Mostra il risultato nell'UI di Streamlit (utile per testare direttamente l'app)
-    # st.subheader("Testo Rielaborato dal AI:")
-    # st.markdown(f"> {risultato_rielaborato}") # Lo commentiamo per non ingombrare se usato come API
-else:
-    st.info("Benvenuto! Questo servizio rielabora il testo per fumetti. Funziona tramite parametri URL.")
-
-# Prepara i dati di risposta JSON da inserire in un div nascosto per il plugin
-response_payload = {
-    "original_text": testo_da_rielaborare if testo_da_rielaborare else "",
-    "rephrased_text": risultato_rielaborato
-}
-
-# Inserisce i dati JSON in un div nascosto che il plugin può leggere.
-# Usiamo st.markdown perché st.json() crea una visualizzazione UI complessa.
-# Questo è il modo per far sì che il plugin prenda i dati.
-st.markdown(f"""
-<div id="api-response-data" style="display:none;">
-{json.dumps(response_payload)}
-</div>
-""", unsafe_allow_html=True)
-
-# Opzionale: un piccolo footer o info
+        return "Errore nella rielaborazione del testo."
+# --- Interfaccia Utente ---
+# Ottieni il testo dal parametro URL 'text'
+query_params = st.query_params
+testo_da_url_codificato = query_params.get("text", "")
+testo_da_url_decodificato = ""
+if testo_da_url_codificato:
+    try:
+        testo_da_url_decodificato = urllib.parse.unquote(testo_da_url_codificato)
+    except Exception as e:
+        st.warning(f"Impossibile decodificare il testo dall'URL: {e}")
+st.subheader("Testo da Rielaborare:")
+testo_input = st.text_area(
+    "Inserisci o modifica il testo qui:",
+    value=testo_da_url_decodificato,
+    height=250,
+    key="testo_originale_area"
+)
+col1, col2 = st.columns(2)
+with col1:
+    modello_selezionato = st.selectbox(
+        "Scegli il modello Groq:",
+        ("llama3-8b-8192", "mixtral-8x7b-32768", "gemma-7b-it", "llama3-70b-8192"),
+        index=0,
+        help="Scegli il modello LLM di Groq da usare per la rielaborazione."
+    )
+with col2:
+    st.write("") 
+    st.write("") 
+    if st.button("✨ Rielabora in Stile Fumetto!", use_container_width=True, type="primary"):
+        if testo_input and testo_input.strip():
+            with st.spinner("Groq sta creando la magia... 🧠💭💥 POW!"):
+                testo_rielaborato = rielabora_testo_con_groq(testo_input, modello_selezionato)
+                st.session_state.testo_rielaborato = testo_rielaborato
+        else:
+            st.warning("Per favore, inserisci del testo da rielaborare.")
+if "testo_rielaborato" in st.session_state:
+    st.subheader("💬 Testo Rielaborato in Stile Fumetto:")
+    # Usiamo st.markdown per una migliore visualizzazione e la possibilità di usare HTML/CSS in futuro se necessario
+    container = st.container(border=True)
+    container.markdown(st.session_state.testo_rielaborato)
 st.markdown("---")
-st.caption("Servizio di Rielaborazione Testo per Plugin Fumetto v1.0")
-
-# Per testare l'app direttamente, puoi aggiungere un input utente:
-st.sidebar.header("Test Manuale")
-test_text_manual = st.sidebar.text_area("Incolla qui il testo da rielaborare per un test:", height=100)
-if st.sidebar.button("Rielabora Testo (Test Manuale)"):
-    if test_text_manual:
-        rephrased_for_manual_test = rielabora_testo_con_groq(test_text_manual)
-        st.sidebar.subheader("Risultato Test Manuale:")
-        st.sidebar.markdown(f"> {rephrased_for_manual_test}")
-    else:
-        st.sidebar.warning("Inserisci del testo per il test.")
+st.markdown("App creata come backend per l'estensione 'Converti Articolo in Fumetto'.")
