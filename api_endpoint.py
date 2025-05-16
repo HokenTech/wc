@@ -1,158 +1,96 @@
-
 import streamlit as st
-import json
-import requests
 import os
+import json
+from groq import Groq
 
-# Costanti per chiamare l'API Groq
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL_NAME = "llama-3.3-70b-versatile"
-REQUEST_TIMEOUT = 90  # timeout in secondi
+# Configura la pagina Streamlit (opzionale, ma buono per dare un titolo)
+st.set_page_config(page_title="Servizio Rielaborazione Testo Fumetto", layout="centered")
 
-def transform_text_narrative(api_key: str, text: str) -> str:
-    """
-    Chiama l'API Groq per elaborare il testo e restituire il contenuto trasformato.
-    """
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+# Recupera la chiave API di Groq dai segreti di Streamlit
+# Assicurati di aver configurato un segreto chiamato 'GROQ_API_KEY' in Streamlit Cloud
+try:
+    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+except Exception as e:
+    st.error(f"Errore nell'inizializzazione del client Groq: Assicurati che GROQ_API_KEY sia configurata nei segreti di Streamlit. Dettagli: {e}")
+    st.stop()
+
+def rielabora_testo_con_groq(testo_originale):
+    if not testo_originale or not testo_originale.strip():
+        return ""
+    try:
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Sei un assistente creativo specializzato nella scrittura di fumetti. "
+                        "Il tuo compito è rielaborare il testo fornito per renderlo più vivace, conciso e adatto "
+                        "allo stile di un dialogo o una narrazione da fumetto. "
+                        "Usa un linguaggio colorito, diretto, e se appropriato, onomatopee o esclamazioni tipiche dei fumetti. "
+                        "Mantieni il significato originale del testo."
+                        "NON includere prefissi come 'Testo rielaborato:' o simili nella tua risposta. Fornisci solo il testo trasformato."
+                        "Rispondi in italiano."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"Rielabora il seguente testo per un fumetto: \"{testo_originale}\"",
+                }
+            ],
+            model="llama3-70b-8192", # Puoi scegliere un altro modello Groq se preferisci
+            temperature=0.7,
+            max_tokens=len(testo_originale.split()) * 3 + 50, # Stima approssimativa per output più lungo
+            top_p=0.9,
+        )
+        return chat_completion.choices[0].message.content.strip()
+    except Exception as e:
+        st.error(f"Errore durante la chiamata all'API Groq: {e}")
+        return testo_originale # Restituisce l'originale in caso di errore
+
+# Questo è il "cuore" del nostro finto endpoint API
+# Legge il testo dai parametri query dell'URL
+query_params = st.query_params.to_dict()
+testo_da_rielaborare = query_params.get("text_to_rephrase", [None])[0]
+
+risultato_rielaborato = ""
+
+if testo_da_rielaborare:
+    #st.write(f"Testo originale ricevuto: {testo_da_rielaborare}") # Debug
+    with st.spinner("🤖 Un attimo, il nostro sceneggiatore AI è all'opera..."):
+        risultato_rielaborato = rielabora_testo_con_groq(testo_da_rielaborare)
     
-    prompt = (
-        "Riscrivi il seguente testo in uno stile fumettistico narrativo "
-        "con titoli espliciti per ogni paragrafo. Non inserire la sequenza '\\n\\n' "
-        "ma usa interruzioni di linea naturali per separare i pannelli.\n\n" + text
-    )
-    
-    payload = {
-        "model": GROQ_MODEL_NAME,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7,
-        "max_tokens": 3500,
-    }
-    
-    response = requests.post(GROQ_API_URL, json=payload, headers=headers, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    data = response.json()
-    choices = data.get("choices", [])
-    if choices and isinstance(choices, list) and len(choices) > 0:
-        message = choices[0].get("message", {})
-        return message.get("content", "").strip()
-    return ""
+    # Mostra il risultato nell'UI di Streamlit (utile per testare direttamente l'app)
+    # st.subheader("Testo Rielaborato dal AI:")
+    # st.markdown(f"> {risultato_rielaborato}") # Lo commentiamo per non ingombrare se usato come API
+else:
+    st.info("Benvenuto! Questo servizio rielabora il testo per fumetti. Funziona tramite parametri URL.")
 
-def generate_html_comic_layout(text: str) -> str:
-    """
-    Genera una pagina HTML con layout a fumetto a partire dal testo processato.
-    Divide il testo in pannelli (usando le interruzioni doppie di linea) e formatta ciascun pannello.
-    """
-    panels = [p.strip() for p in text.split("\n\n") if p.strip()]
-    panel_html_list = []
-    for panel in panels:
-        lines = panel.split("\n")
-        title = lines[0].strip() if lines else "Titolo non specificato"
-        # Unisce le restanti righe per costituire il contenuto, separandole con <br>
-        content = "<br>".join(line.strip() for line in lines[1:]) if len(lines) > 1 else ""
-        panel_html = f"""
-          <div class="panel">
-              <div class="panel-content">
-                  <h2>{title}</h2>
-                  <p>{content}</p>
-              </div>
-          </div>
-        """
-        panel_html_list.append(panel_html)
-    all_panels = "\n".join(panel_html_list)
-    html_page = f"""
-    <html>
-      <head>
-         <meta charset="utf-8">
-         <title>Comic Layout</title>
-         <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
-         <style>
-            body {{
-                font-family: 'Comic Neue', cursive;
-                background: linear-gradient(135deg, #f6f8fa, #e9ecef);
-                margin: 0;
-                padding: 20px;
-                color: #24292e;
-            }}
-            .comic-container {{
-                display: flex;
-                flex-wrap: wrap;
-                gap: 25px;
-                justify-content: center;
-                max-width: 1400px;
-                margin: 20px auto;
-                padding: 25px;
-                background-color: #ffffff;
-                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-                border-radius: 12px;
-            }}
-            .panel {{
-                background: #ffffff;
-                border: 4px solid #333;
-                box-shadow: 3px 3px 10px rgba(0,0,0,0.2);
-                padding: 20px;
-                border-radius: 8px;
-                width: calc(50% - 25px);
-                min-width: 320px;
-            }}
-            .panel h2 {{
-                font-family: 'Bangers', cursive;
-                color: #e53935;
-                text-align: center;
-                margin-top: 0;
-                text-shadow: 1px 1px #555;
-                font-size: 2.2em;
-                margin-bottom: 15px;
-            }}
-            .panel p {{
-                text-align: justify;
-                line-height: 1.6;
-                white-space: pre-wrap;
-                font-size: 1.1em;
-            }}
-         </style>
-      </head>
-      <body>
-         <div class="comic-container">
-            {all_panels}
-         </div>
-      </body>
-    </html>
-    """
-    return html_page
+# Prepara i dati di risposta JSON da inserire in un div nascosto per il plugin
+response_payload = {
+    "original_text": testo_da_rielaborare if testo_da_rielaborare else "",
+    "rephrased_text": risultato_rielaborato
+}
 
-def main():
-    # Recupera la chiave API Groq dalle variabili di ambiente o dai secrets
-    api_key = os.getenv("GROQ_API_KEY", "")
-    if not api_key:
-        st.error("GROQ_API_KEY non configurata.")
-        return
+# Inserisce i dati JSON in un div nascosto che il plugin può leggere.
+# Usiamo st.markdown perché st.json() crea una visualizzazione UI complessa.
+# Questo è il modo per far sì che il plugin prenda i dati.
+st.markdown(f"""
+<div id="api-response-data" style="display:none;">
+{json.dumps(response_payload)}
+</div>
+""", unsafe_allow_html=True)
 
-    params = st.query_params
-    # Controlla se è stato fornito il parametro 'text'
-    if "text" in params:
-        input_text = params.get("text", [""])[0]
-        if not input_text:
-            st.error("Parametro 'text' mancante.")
-            return
+# Opzionale: un piccolo footer o info
+st.markdown("---")
+st.caption("Servizio di Rielaborazione Testo per Plugin Fumetto v1.0")
 
-        try:
-            processed_text = transform_text_narrative(api_key, input_text)
-            # Se il parametro ?api=1 è presente, restituisce JSON
-            if "api" in params:
-                response_data = {"processedText": processed_text}
-                st.write(json.dumps(response_data))
-            else:
-                # Altrimenti, restituisce una pagina HTML completa con layout a fumetto
-                html_output = generate_html_comic_layout(processed_text)
-                st.markdown(html_output, unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"Errore durante la trasformazione: {e}")
+# Per testare l'app direttamente, puoi aggiungere un input utente:
+st.sidebar.header("Test Manuale")
+test_text_manual = st.sidebar.text_area("Incolla qui il testo da rielaborare per un test:", height=100)
+if st.sidebar.button("Rielabora Testo (Test Manuale)"):
+    if test_text_manual:
+        rephrased_for_manual_test = rielabora_testo_con_groq(test_text_manual)
+        st.sidebar.subheader("Risultato Test Manuale:")
+        st.sidebar.markdown(f"> {rephrased_for_manual_test}")
     else:
-        st.write("Utilizza il parametro 'text' nella query string per inviare il testo da trasformare.")
-
-if __name__ == "__main__":
-    main()
-
+        st.sidebar.warning("Inserisci del testo per il test.")
