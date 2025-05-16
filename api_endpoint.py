@@ -11,23 +11,26 @@ REQUEST_TIMEOUT = 90  # timeout in secondi
 
 def transform_text_narrative(api_key: str, text: str) -> str:
     """
-    Chiama l'API Groq per elaborare il testo.
+    Chiama l'API Groq per elaborare il testo e restituire il contenuto trasformato.
     """
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
+    
     prompt = (
         "Riscrivi il seguente testo in uno stile fumettistico narrativo "
         "con titoli espliciti per ogni paragrafo. Non inserire la sequenza '\\n\\n' "
         "ma usa interruzioni di linea naturali per separare i pannelli.\n\n" + text
     )
+    
     payload = {
         "model": GROQ_MODEL_NAME,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
         "max_tokens": 3500,
     }
+    
     response = requests.post(GROQ_API_URL, json=payload, headers=headers, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     data = response.json()
@@ -39,15 +42,15 @@ def transform_text_narrative(api_key: str, text: str) -> str:
 
 def generate_html_comic_layout(text: str) -> str:
     """
-    Converte il testo processato in una pagina HTML completa dal layout "fumettistico".
-    Divide il testo in pannelli (utilizzando le interruzioni di riga doppie) e li formatta.
+    Genera una pagina HTML con layout a fumetto a partire dal testo processato.
+    Divide il testo in pannelli (usando le interruzioni doppie di linea) e formatta ciascun pannello.
     """
-    panels = [p.strip() for p in text.split("\n\n") if p.strip() != ""]
+    panels = [p.strip() for p in text.split("\n\n") if p.strip()]
     panel_html_list = []
     for panel in panels:
         lines = panel.split("\n")
         title = lines[0].strip() if lines else "Titolo non specificato"
-        # Unisce eventuali righe successive per formare il contenuto
+        # Unisce le restanti righe per costituire il contenuto, separandole con <br>
         content = "<br>".join(line.strip() for line in lines[1:]) if len(lines) > 1 else ""
         panel_html = f"""
           <div class="panel">
@@ -121,7 +124,7 @@ def generate_html_comic_layout(text: str) -> str:
     return html_page
 
 def main():
-    # Recupera la chiave API Groq dalle variabili d'ambiente o dai secrets
+    # Recupera la chiave API Groq dalle variabili di ambiente o dai secrets
     api_key = os.getenv("GROQ_API_KEY", "")
     if not api_key:
         st.error("GROQ_API_KEY non configurata.")
@@ -137,11 +140,12 @@ def main():
 
         try:
             processed_text = transform_text_narrative(api_key, input_text)
-            # Se è presente ?api=1 restituisce JSON, altrimenti rende una pagina web completa
+            # Se il parametro ?api=1 è presente, restituisce JSON
             if "api" in params:
                 response_data = {"processedText": processed_text}
                 st.write(json.dumps(response_data))
             else:
+                # Altrimenti, restituisce una pagina HTML completa con layout a fumetto
                 html_output = generate_html_comic_layout(processed_text)
                 st.markdown(html_output, unsafe_allow_html=True)
         except Exception as e:
